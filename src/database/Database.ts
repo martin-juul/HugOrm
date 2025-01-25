@@ -31,6 +31,10 @@ export class Database {
     }
   }
 
+  async ensureTable(table: string): Promise<void> {
+    await this.createTable(table);
+  }
+
   async find<T extends {}>(table: string, id: number): Promise<T | null> {
     try {
       return await this.adapter.find<T>(table, id);

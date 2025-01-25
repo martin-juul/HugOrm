@@ -4,6 +4,7 @@ import { HugOrmConfig } from '@martinjuul/hugorm/HugOrmConfig';
 import { createError } from '@martinjuul/hugorm/utils/errorUtils';
 import { ModelContainer } from '@martinjuul/hugorm/container/ModelContainer';
 import { Model } from '@martinjuul/hugorm/models/Model';
+import { resolveMigrationTableName } from '@martinjuul/hugorm/utils/resolveMigrationTableName';
 
 export class HugOrm {
   private db: Database | null = null;
@@ -15,18 +16,16 @@ export class HugOrm {
   async setupDatabase(): Promise<void> {
     this.db = new Database(this.config.adapter);
 
-    if (!this.config.autoMigrate) {
-      try {
-        await this.db.all('migrations');
-      } catch (error) {
-        throw createError('Database adapter check failed', error);
-      }
+    try {
+      await this.db.all(resolveMigrationTableName(this.config));
+    } catch (error) {
+      throw createError('Database adapter check failed', error);
     }
   }
 
   async setupMigrationManager(): Promise<void> {
     if (!this.db) throw new Error('Database not initialized');
-    this.migrationManager = new MigrationManager(this.db);
+    this.migrationManager = new MigrationManager(this.db, resolveMigrationTableName(this.config));
   }
 
   async bootstrap(): Promise<void> {
@@ -35,7 +34,10 @@ export class HugOrm {
     }
 
     await this.syncModels();
-    await this.applyMigrations();
+
+    if (this.config.autoMigrate) {
+      await this.applyMigrations();
+    }
   }
 
   getDatabase(): Database {
@@ -51,7 +53,7 @@ export class HugOrm {
   private async syncModels(): Promise<void> {
     if (!this.db) return;
 
-    const modelClasses = Array.from(ModelContainer.classRegistry.values());
+    const modelClasses = [...ModelContainer.classRegistry.values()];
 
     for (const modelClass of modelClasses) {
       if (!modelClass.table) continue;

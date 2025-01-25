@@ -12,12 +12,16 @@ interface DBMigration {
 }
 
 export class MigrationManager {
-  private readonly MIGRATION_TABLE = 'migrations';
   private currentVersion: number = 0;
 
   constructor(
     private db: Database,
+    private readonly _migrationTableName: string,
   ) {
+  }
+
+  get migrationTableName(): string {
+    return this._migrationTableName;
   }
 
   get migrations(): MigrationScript[] {
@@ -25,9 +29,7 @@ export class MigrationManager {
   }
 
   async bootstrap(): Promise<void> {
-    if (!(await this.db.hasTable(this.MIGRATION_TABLE))) {
-      await this.db.createTable(this.MIGRATION_TABLE);
-    }
+    await this.db.ensureTable(this.migrationTableName);
     await this.loadCurrentVersion();
   }
 
@@ -70,7 +72,7 @@ export class MigrationManager {
   }
 
   async validate(): Promise<boolean> {
-    const appliedMigrations = await this.db.all<DBMigration>(this.MIGRATION_TABLE);
+    const appliedMigrations = await this.db.all<DBMigration>(this.migrationTableName);
 
     return appliedMigrations.every(applied => {
       const migration = this.migrations.find(m => m.version === applied.version);
@@ -87,7 +89,7 @@ export class MigrationManager {
     return {
       currentVersion: this.currentVersion,
       pending: this.migrations.filter(m => m.version > this.currentVersion).length,
-      history: await this.db.all<DBMigration>(this.MIGRATION_TABLE),
+      history: await this.db.all<DBMigration>(this.migrationTableName),
     };
   }
 
@@ -100,7 +102,7 @@ export class MigrationManager {
   }
 
   private async loadCurrentVersion(): Promise<void> {
-    const results = await this.db.all<DBMigration>(this.MIGRATION_TABLE);
+    const results = await this.db.all<DBMigration>(this.migrationTableName);
     this.currentVersion = results.length > 0
                           ? Math.max(...results.map(m => m.version))
                           : 0;
@@ -109,7 +111,7 @@ export class MigrationManager {
   private async recordMigration(migration: MigrationScript): Promise<void> {
     const checksum = this.generateChecksum(migration);
 
-    await this.db.create<DBMigration>(this.MIGRATION_TABLE, {
+    await this.db.create<DBMigration>(this.migrationTableName, {
       version: migration.version,
       name: migration.constructor.name,
       appliedAt: new Date(),
@@ -119,11 +121,11 @@ export class MigrationManager {
   }
 
   private async removeMigration(migration: MigrationScript): Promise<void> {
-    await this.db.where<DBMigration>(this.MIGRATION_TABLE, {
+    await this.db.where<DBMigration>(this.migrationTableName, {
       version: migration.version,
     }).then(migrations =>
       Promise.all(migrations.map(m =>
-        this.db.delete(this.MIGRATION_TABLE, m.id!),
+        this.db.delete(this.migrationTableName, m.id!),
       )),
     );
   }

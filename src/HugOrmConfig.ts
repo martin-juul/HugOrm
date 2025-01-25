@@ -6,5 +6,6 @@ export interface HugOrmConfig {
   adapter: Adapter;
   autoMigrate: boolean;
   migrations: MigrationScript[];
+  migrationTable?: string;
   logger?: ILogger;
 }
