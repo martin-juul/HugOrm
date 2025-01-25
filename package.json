@@ -1,0 +1,25 @@
+{
+  "name": "@martinjuul/hugorm",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.es.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "prepublishOnly": "yarn build"
+  },
+  "peerDependencies": {
+    "idb": "^8.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.10",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11",
+    "vite-plugin-dts": "^4.5.0"
+  },
+  "dependencies": {
+    "reflect-metadata": "^0.2.2"
+  }
+}
