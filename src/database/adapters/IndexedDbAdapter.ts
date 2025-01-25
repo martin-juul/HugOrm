@@ -33,7 +33,9 @@ export class IndexedDbAdapter implements Adapter {
   }
 
   async beginTransaction(): Promise<void> {
-    if (this.inTransaction) throw new Error('Transaction already started');
+    if (this.inTransaction) {
+      throw new Error('Transaction already started');
+    }
     await this.ensureDb();
 
     this.currentTransaction = this.db!.transaction(
@@ -44,14 +46,18 @@ export class IndexedDbAdapter implements Adapter {
   }
 
   async commit(): Promise<void> {
-    if (!this.inTransaction) throw new Error('No active transaction');
+    if (!this.inTransaction) {
+      throw new Error('No active transaction');
+    }
     this.currentTransaction?.commit();
     this.currentTransaction = null;
     this.inTransaction = false;
   }
 
   async rollback(): Promise<void> {
-    if (!this.inTransaction) throw new Error('No active transaction');
+    if (!this.inTransaction) {
+      throw new Error('No active transaction');
+    }
     this.currentTransaction?.abort();
     this.currentTransaction = null;
     this.inTransaction = false;
@@ -89,7 +95,9 @@ export class IndexedDbAdapter implements Adapter {
       const recordId = store.add(rest);
       return { ...rest, id: recordId } as unknown as T;
     } catch (error) {
-      if (this.inTransaction) await this.rollback();
+      if (this.inTransaction) {
+        await this.rollback();
+      }
       throw createError(`IndexedDB create failed for table ${table}`, error);
     }
   }

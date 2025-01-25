@@ -14,20 +14,26 @@ export class InMemoryAdapter implements Adapter {
 
   // Transaction methods
   async beginTransaction(): Promise<void> {
-    if (this.inTransaction) throw new Error('Transaction already started');
+    if (this.inTransaction) {
+      throw new Error('Transaction already started');
+    }
     this.transactionSnapshot = JSON.parse(JSON.stringify(this.data));
     this.inTransaction = true;
   }
 
   async commit(): Promise<void> {
-    if (!this.inTransaction) throw new Error('No active transaction');
+    if (!this.inTransaction) {
+      throw new Error('No active transaction');
+    }
     this.data = this.transactionSnapshot!;
     this.transactionSnapshot = null;
     this.inTransaction = false;
   }
 
   async rollback(): Promise<void> {
-    if (!this.inTransaction) throw new Error('No active transaction');
+    if (!this.inTransaction) {
+      throw new Error('No active transaction');
+    }
     this.transactionSnapshot = null;
     this.inTransaction = false;
   }
@@ -44,13 +50,17 @@ export class InMemoryAdapter implements Adapter {
 
   async find<T extends {}>(table: string, id: number): Promise<T | null> {
     const records = this.data[table];
-    if (!records) throw new Error(`Table ${table} does not exist`);
+    if (!records) {
+      throw new Error(`Table ${table} does not exist`);
+    }
     return records.find(record => record.id === id) || null;
   }
 
   async create<T extends {}>(table: string, data: Partial<T>): Promise<T> {
     const target = this.inTransaction ? this.transactionSnapshot! : this.data;
-    if (!target[table]) target[table] = [];
+    if (!target[table]) {
+      target[table] = [];
+    }
     const record = { ...data, id: target[table].length + 1 };
     target[table].push(record);
     return record as T;
@@ -61,7 +71,9 @@ export class InMemoryAdapter implements Adapter {
     const records = target[table] || [];
     const index = records.findIndex(record => record.id === id);
 
-    if (index === -1) throw new Error('Record not found');
+    if (index === -1) {
+      throw new Error('Record not found');
+    }
     const updated = { ...records[index], ...data };
     target[table][index] = updated;
     return updated as T;

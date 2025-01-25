@@ -4,7 +4,9 @@ export class EventEmitter<Events extends Record<string, any>> {
   private events: Partial<Record<keyof Events, Listener<any>[]>> = {};
 
   on<Event extends keyof Events>(event: Event, listener: Listener<Events[Event]>): void {
-    if (!this.events[event]) this.events[event] = [];
+    if (!this.events[event]) {
+      this.events[event] = [];
+    }
     this.events[event]!.push(listener);
   }
 

@@ -52,9 +52,13 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
 
   static get database(): Database {
     // Use per-model connection if set
-    if (this.connection) return this.connection;
+    if (this.connection) {
+      return this.connection;
+    }
     // Fall back to global default
-    if (Model.defaultConnection) return Model.defaultConnection;
+    if (Model.defaultConnection) {
+      return Model.defaultConnection;
+    }
     throw new Error('Database not configured. Call Model.setDatabase() first.');
   }
 
@@ -177,7 +181,9 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
 
     const now = new Date();
     if (this.timestamps) {
-      if (!this.id) (this as any).created_at = now;
+      if (!this.id) {
+        (this as any).created_at = now;
+      }
       (this as any).updated_at = now;
     }
 
@@ -219,7 +225,9 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
   }
 
   async delete(): Promise<boolean> {
-    if (!this.id) throw new Error('Cannot delete a record without an ID.');
+    if (!this.id) {
+      throw new Error('Cannot delete a record without an ID.');
+    }
 
     if (this.softDeletes) {
       prepareSoftDelete(this);
@@ -310,7 +318,9 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
 
   async resolveRelationship(propertyKey: string): Promise<any> {
     const relationship = Reflect.getMetadata(RELATIONSHIP_METADATA_KEY, this, propertyKey);
-    if (!relationship) throw new Error(`No relationship defined for property: ${propertyKey}`);
+    if (!relationship) {
+      throw new Error(`No relationship defined for property: ${propertyKey}`);
+    }
     return relationship.resolve(this);
   }
 
@@ -319,7 +329,9 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
   }
 
   async touch(): Promise<void> {
-    if (typeof this.id === 'undefined') return;
+    if (typeof this.id === 'undefined') {
+      return;
+    }
     const now = new Date();
     await this.database.update<T>(this.table, this.id, { updatedAt: now } as Partial<T>);
 

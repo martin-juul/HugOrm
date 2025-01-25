@@ -19,20 +19,26 @@ export class LocalStorageAdapter implements Adapter {
   }
 
   async beginTransaction(): Promise<void> {
-    if (this.inTransaction) throw new Error('Transaction already started');
+    if (this.inTransaction) {
+      throw new Error('Transaction already started');
+    }
     this.transactionData = this.getData();
     this.inTransaction = true;
   }
 
   async commit(): Promise<void> {
-    if (!this.inTransaction) throw new Error('No active transaction');
+    if (!this.inTransaction) {
+      throw new Error('No active transaction');
+    }
     this.setData(this.transactionData!);
     this.transactionData = null;
     this.inTransaction = false;
   }
 
   async rollback(): Promise<void> {
-    if (!this.inTransaction) throw new Error('No active transaction');
+    if (!this.inTransaction) {
+      throw new Error('No active transaction');
+    }
     this.transactionData = null;
     this.inTransaction = false;
   }
@@ -58,14 +64,18 @@ export class LocalStorageAdapter implements Adapter {
   async find<T extends {}>(table: string, id: number): Promise<T | null> {
     const data = this.getData();
     const records = data[table];
-    if (!records) throw new Error(`Table ${table} does not exist`);
+    if (!records) {
+      throw new Error(`Table ${table} does not exist`);
+    }
     return records.find(record => record.id === id) || null;
   }
 
   async create<T extends { id?: number }>(table: string, data: Partial<T>): Promise<T> {
     try {
       const storedData = this.getData();
-      if (!storedData[table]) storedData[table] = [];
+      if (!storedData[table]) {
+        storedData[table] = [];
+      }
       const record = { ...data, id: storedData[table].length + 1 };
       storedData[table].push(record);
       this.setData(storedData);
@@ -78,9 +88,13 @@ export class LocalStorageAdapter implements Adapter {
   async update<T extends {}>(table: string, id: number, data: Partial<T>): Promise<T> {
     const storedData = this.getData();
     const records = storedData[table];
-    if (!records) throw new Error(`Table ${table} does not exist`);
+    if (!records) {
+      throw new Error(`Table ${table} does not exist`);
+    }
     const record = records.find(record => record.id === id);
-    if (!record) throw new Error(`Record with id ${id} not found in table ${table}`);
+    if (!record) {
+      throw new Error(`Record with id ${id} not found in table ${table}`);
+    }
     Object.assign(record, data);
     this.setData(storedData);
     return record;
@@ -89,7 +103,9 @@ export class LocalStorageAdapter implements Adapter {
   async delete(table: string, id: number): Promise<boolean> {
     const storedData = this.getData();
     const records = storedData[table];
-    if (!records) throw new Error(`Table ${table} does not exist`);
+    if (!records) {
+      throw new Error(`Table ${table} does not exist`);
+    }
     storedData[table] = records.filter(record => record.id !== id);
     this.setData(storedData);
     return true;
