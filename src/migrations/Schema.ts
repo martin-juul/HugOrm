@@ -1,4 +1,5 @@
 import { Adapter } from '@martinjuul/hugorm/database/adapters/Adapter';
+import { MigrationScript } from '@martinjuul/hugorm/models/MigrationScript';
 
 export type ColumnType =
   | 'increments'
@@ -58,6 +59,24 @@ export class Blueprint {
     return this;
   }
 
+  date(name: string): this {
+    this.columns.push({
+      name,
+      type: 'date',
+    });
+
+    return this;
+  }
+
+  boolean(name: string): this {
+    this.columns.push({
+      name,
+      type: 'boolean',
+    });
+
+    return this;
+  }
+
   index(options: IndexDefinition): this {
     this.indices.push(options);
 
@@ -71,13 +90,14 @@ export class Blueprint {
 }
 
 export class Schema {
-  static create(table: string, callback: (table: Blueprint) => void) {
+  static create(version: number, table: string, callback: (table: Blueprint) => void) {
     const blueprint = new Blueprint();
     callback(blueprint);
 
-    return {
-      version: Date.now(),
+    const script: MigrationScript = {
+      version,
       name: `create_${table}_table`,
+      table,
       async up(adapter: Adapter) {
         await adapter.createTable(table, blueprint.columns);
 
@@ -101,16 +121,19 @@ export class Schema {
         }
       },
     };
+
+    return script;
   }
 
 
-  static table(table: string, callback: (table: Blueprint) => void) {
+  static table(version: number, table: string, callback: (table: Blueprint) => void) {
     const blueprint = new Blueprint();
     callback(blueprint);
 
-    return {
-      version: Date.now(),
+    const script: MigrationScript = {
+      version,
       name: `alter_${table}_table`,
+      table,
       async up(adapter: Adapter) {
         for (const column of blueprint.columns) {
           await adapter.addColumn(table, column);
@@ -130,5 +153,7 @@ export class Schema {
         }
       },
     };
+
+    return script;
   }
 }

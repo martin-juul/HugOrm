@@ -1,33 +1,25 @@
-import { Relationship } from './Relationship.js';
-import { Model } from '../models/Model.js';
 import { IModelConstructor } from '@martinjuul/hugorm/models/IModel';
+import { Model } from '@martinjuul/hugorm/models/Model';
+import { Relationship } from '@martinjuul/hugorm/relationships/Relationship';
 
 export class BelongsToMany<T extends Model, R extends Model> extends Relationship<T, R> {
   constructor(
-    public relatedModel: IModelConstructor<R>,
-    protected pivotTable: string,
+    getRelatedModel: () => IModelConstructor<R>, // Changed to function getter
+    private pivotTable: string,
     foreignKey: keyof T,
-    protected relatedKey: keyof R,
+    private relatedKey: keyof R,
   ) {
-    super(relatedModel, foreignKey);
+    super(getRelatedModel, foreignKey);
   }
 
   async resolve(source: T): Promise<R[]> {
-    type PivotRecord = Record<string, unknown> & {
-      [K in typeof this.foreignKey | typeof this.relatedKey]: number
-    };
-
-    const pivotRecords = await this.relatedModel.database.where<PivotRecord>(
+    const modelClass = this.getRelatedModel(); // Get constructor when needed
+    const pivotRecords = await modelClass.database.where<{ [key: string]: number }>(
       this.pivotTable,
-      { [this.foreignKey]: source.id } as Partial<PivotRecord>,
+      { [this.foreignKey]: source.id },
     );
 
-    const relatedIds = pivotRecords.map(record =>
-      Number(record[this.relatedKey as keyof PivotRecord]),
-    );
-
-    return this.relatedModel.where({
-      id: relatedIds,
-    } as unknown as Partial<R>);
+    const relatedIds = pivotRecords.map(record => record[this.relatedKey as string]);
+    return modelClass.where({ id: relatedIds } as unknown as Partial<R>);
   }
 }

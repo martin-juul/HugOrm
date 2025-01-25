@@ -1,8 +1,16 @@
-import { Adapter } from './Adapter.js';
-import { DBSchema, IDBPDatabase, IDBPTransaction, openDB, StoreNames, TypedDOMStringList } from 'idb';
-import { createError } from '@martinjuul/hugorm/utils/errorUtils';
-import { ConsoleLogger } from '@martinjuul/hugorm/database/logger/ConsoleLogger';
+import type {
+  DBSchema,
+  IDBPDatabase,
+  IDBPObjectStore,
+  IDBPTransaction,
+  IndexNames,
+  StoreNames,
+  TypedDOMStringList,
+} from 'idb';
+import { Adapter } from '@martinjuul/hugorm/database/adapters/Adapter';
 import { ILogger } from '@martinjuul/hugorm/database/logger/ILogger';
+import { ConsoleLogger } from '@martinjuul/hugorm/database/logger/ConsoleLogger';
+import { createError } from '@martinjuul/hugorm/utils/errorUtils';
 import { ColumnDefinition, IndexDefinition } from '@martinjuul/hugorm/migrations/Schema';
 
 interface HugOrmSchema extends DBSchema {
@@ -13,104 +21,109 @@ interface HugOrmSchema extends DBSchema {
 }
 
 type TableName = StoreNames<HugOrmSchema>;
+type HugIndex = IndexNames<HugOrmSchema, never>;
+type IdbObjectStore = IDBPObjectStore<HugOrmSchema, TypedDOMStringList<StoreNames<HugOrmSchema>>, never, IDBTransactionMode>;
+
+type IdbTransaction<Mode extends IDBTransactionMode> = IDBPTransaction<
+  HugOrmSchema,
+  TypedDOMStringList<StoreNames<HugOrmSchema>>,
+  Mode
+>;
+type IdbTransactionRW = IdbTransaction<'readwrite'>;
+type IdbTransactionRO = IdbTransaction<'readonly'>;
+type IdbTransactionVersion = IdbTransaction<'versionchange'>;
+
 
 export class IndexedDbAdapter implements Adapter {
-  inTransaction = false;
-  private currentTransaction: IDBPTransaction<HugOrmSchema, TypedDOMStringList<StoreNames<HugOrmSchema>>, 'readwrite'> | null = null;
-  private db: IDBPDatabase<HugOrmSchema> | null = null;
+  private transaction: IdbTransaction<any> | null = null;
+  private mode: IDBTransactionMode = 'readwrite';
+  private _db: IDBPDatabase<HugOrmSchema> | null = null;
   private logger: ILogger = new ConsoleLogger();
-  private isInitializing = false;
+  private isTransactionActive: boolean = false;
+  private idb: typeof import('idb') | null = null;
+  private ready = false;
 
   constructor(
     private readonly dbName: string = 'hug-orm-db',
     private dbVersion: number = 1,
   ) {
-    this.dbName = dbName;
+    this.initialize();
+  }
+
+  get inTransaction(): boolean {
+    return this.isTransactionActive;
   }
 
   setLogger(logger: ILogger): void {
     this.logger = logger;
   }
 
+  initialize() {
+    import('idb').then(idb => {
+      this.idb = idb;
+      this.ready = true;
+    });
+  }
+
   async beginTransaction(): Promise<void> {
     if (this.inTransaction) {
       throw new Error('Transaction already started');
     }
-    await this.ensureDb();
 
-    this.currentTransaction = this.db!.transaction(
-      this.db!.objectStoreNames as any,
-      'readwrite',
-    );
-    this.inTransaction = true;
+    const db = await this.getDb();
+    this.mode = 'readwrite';
+    this.transaction = db.transaction(db.objectStoreNames, this.mode);
+    this.isTransactionActive = true;
   }
 
   async commit(): Promise<void> {
     if (!this.inTransaction) {
       throw new Error('No active transaction');
     }
-    this.currentTransaction?.commit();
-    this.currentTransaction = null;
-    this.inTransaction = false;
+
+    this.transaction?.commit();
+    this.resetTransaction();
   }
 
   async rollback(): Promise<void> {
     if (!this.inTransaction) {
       throw new Error('No active transaction');
     }
-    this.currentTransaction?.abort();
-    this.currentTransaction = null;
-    this.inTransaction = false;
+
+    this.transaction?.abort();
+    this.resetTransaction();
   }
 
-  async hasTable(table: string): Promise<boolean> {
-    if (!this.db) {
-      await this.ensureTable(table);
-    }
-    return this.db!.objectStoreNames.contains(table as TableName);
+  async find<T>(table: string, id: number): Promise<T | null> {
+    const store = await this.getStore(table, 'readonly');
+    return store.get(id) as Promise<T | null>;
   }
 
-  async createTable(table: string): Promise<void> {
-    // Increment version to trigger schema update
-    this.dbVersion++;
-    this.db = await openDB<HugOrmSchema>(this.dbName, this.dbVersion, {
-      upgrade(db, oldVersion, newVersion) {
-        if (!db.objectStoreNames.contains(table as TableName)) {
-          db.createObjectStore(table as TableName, { keyPath: 'id', autoIncrement: true });
-        }
-      },
-    });
-  }
-
-  async find<T extends {}>(table: string, id: number): Promise<T | null> {
-    await this.ensureTable(table);
-    return (await this.db!.get(table as TableName, id)) || null;
-  }
-
-  async create<T extends {}>(table: string, data: Partial<T>): Promise<T> {
+  async create<T>(table: string, data: Partial<T>): Promise<T> {
     try {
-      await this.ensureTable(table);
-      const store = this.getStore(table);
+      const store = await this.getStore(table);
       const { id, ...rest } = data as { id?: number; [key: string]: unknown };
-      const recordId = store.add(rest);
-      return { ...rest, id: recordId } as unknown as T;
+      // @ts-expect-error
+      const recordId = await store.add(rest);
+      return { ...rest, id: recordId } as T;
     } catch (error) {
-      if (this.inTransaction) {
-        await this.rollback();
-      }
-      throw createError(`IndexedDB create failed for table ${table}`, error);
+      await this.handleTransactionError(error, `IndexedDB create failed for table ${table}`);
     }
+
+    throw new Error(`IndexedDB create failed for table ${table}`);
   }
 
   async update<T extends { id?: number }>(table: string, id: number, data: Partial<T>): Promise<T> {
     try {
-      await this.ensureTable(table);
-      const store = this.getStore(table);
-      const record = store.get(id);
-      if (!record) {
+      const store = await this.getStore(table);
+      const existing = await store.get(id);
+
+      if (!existing) {
         throw new Error('Record not found');
       }
-      const updated = { ...record, ...data, id };
+
+      const updated = { ...existing, ...data, id };
+      // @ts-expect-error
       await store.put(updated);
       return updated as T;
     } catch (error) {
@@ -119,105 +132,150 @@ export class IndexedDbAdapter implements Adapter {
   }
 
   async delete(table: string, id: number): Promise<boolean> {
-    await this.ensureTable(table);
-    const store = this.getStore(table);
+    const store = await this.getStore(table, 'readwrite');
+    // @ts-expect-error
     await store.delete(id);
     return true;
   }
 
-  async all<T extends {}>(table: string): Promise<T[]> {
-    await this.ensureTable(table);
-    const store = this.getStore(table);
-
-    return store.getAll();
+  async all<T>(table: string): Promise<T[]> {
+    const store = await this.getStore(table, 'readonly');
+    return store.getAll() as Promise<T[]>;
   }
 
-  async where<T extends {}>(table: string, conditions: Partial<T>): Promise<T[]> {
-    const allRecords = await this.all<T>(table);
-    return allRecords.filter(record => {
-      return Object.keys(conditions).every(
-        (key) => record[key as keyof T] === conditions[key as keyof T],
-      );
-    });
+  async where<T>(table: string, conditions: Partial<T>): Promise<T[]> {
+    const records = await this.all<T>(table);
+    return records.filter(record =>
+      Object.keys(conditions).every(key => record[key as keyof T] === conditions[key as keyof T]),
+    );
   }
 
-  async query<T extends {}>(table: string, callback: (record: T) => boolean): Promise<T[]> {
-    const allRecords = await this.all<T>(table);
-    return allRecords.filter(callback);
+  async query<T>(table: string, callback: (record: T) => boolean): Promise<T[]> {
+    const records = await this.all<T>(table);
+    return records.filter(callback);
   }
 
   async addColumn(table: string, column: ColumnDefinition): Promise<void> {
-    // IndexedDB doesn't support columns, create index instead
-
+    this.logger.debug('IndexedDB does not support adding columns.', { table, column });
   }
 
   async dropColumn(table: string, columnName: string): Promise<void> {
-    // not implemented
+    this.logger.debug('IndexedDB does not support dropping columns.', { table, columnName });
   }
 
   async addIndex(table: string, options: IndexDefinition): Promise<void> {
-    await this.ensureTable(table);
-    const store = this.getStore(table, 'versionchange');
-    if (store.createIndex) {
-      store.createIndex(options.name, options.columns, {
+    const tx = this.createTransaction(table, 'versionchange');
+    const store = (await tx).objectStore(table as TableName);
+
+    if (!store.indexNames.contains(options.name as HugIndex)) {
+      if (typeof store.createIndex !== 'function') {
+        throw new Error('IndexedDB does not support indexes.');
+      }
+
+      store.createIndex(options.name as HugIndex, options.columns, {
         unique: options.unique,
         multiEntry: options.multiEntry,
-        locale: options.locale,
-      });
-    } else {
-      throw new Error('IndexedDB does not support indexes');
-    }
-  }
-
-  async dropIndex(table: string, indexName: string): Promise<void> {
-    await this.ensureTable(table);
-    const store = this.getStore(table, 'versionchange');
-    store.deleteIndex(indexName);
-  }
-
-  private async ensureDb(): Promise<void> {
-    if (!this.db) {
-      this.db = await openDB<HugOrmSchema>(this.dbName, this.dbVersion, {
-        upgrade: (db) => {
-          // Empty upgrade handler - tables are created in ensureTable
-        },
       });
     }
   }
 
-  private getStore(table: string, transactionType: IDBTransactionMode = 'readwrite') {
-    if (this.inTransaction && this.currentTransaction) {
-      return this.currentTransaction.objectStore(table as TableName);
+  async dropIndex(table: string, name: string): Promise<void> {
+    await this.upgradeDb((db) => {
+      const tx = db.transaction(table as TableName);
+      const store = tx.objectStore(table as TableName);
+
+      if (store.indexNames.contains(name as IndexNames<HugOrmSchema, never>)) {
+        store.deleteIndex(name);
+      }
+    });
+  }
+
+  async dropTable(table: string): Promise<void> {
+    try {
+      await this.upgradeDb((db) => {
+        if (db.objectStoreNames.contains(table as TableName)) {
+          db.deleteObjectStore(table as TableName);
+        }
+      });
+    } catch (error) {
+      this.logger.error('Failed to drop table', { table });
+    }
+  }
+
+  async hasTable(table: string): Promise<boolean> {
+    const db = await this.getDb();
+    return db.objectStoreNames.contains(table as TableName);
+  }
+
+  async createTable(table: string): Promise<void> {
+    await this.upgradeDb((db) => {
+      if (!db.objectStoreNames.contains(table as TableName)) {
+        db.createObjectStore(table as TableName, { keyPath: 'id', autoIncrement: true });
+      }
+    });
+  }
+
+  private async getDb(): Promise<IDBPDatabase<HugOrmSchema>> {
+    if (!this._db) {
+      this._db = await this.idb!.openDB<HugOrmSchema>(this.dbName, this.dbVersion);
+    }
+    return this._db;
+  }
+
+  private async upgradeDb(upgradeCallback: (db: IDBPDatabase<HugOrmSchema>) => void): Promise<void> {
+    this.dbVersion++;
+    this._db = await this.idb!.openDB<HugOrmSchema>(this.dbName, this.dbVersion, {
+      upgrade: (db) => upgradeCallback(db),
+    });
+  }
+
+  private async createTransaction<T extends IDBTransactionMode>(
+    table: string,
+    mode: T,
+  ): Promise<IdbTransaction<T>> {
+    if (this.inTransaction) {
+      throw new Error('Transaction already started');
     }
 
-    const tx = this.db!.transaction(table as TableName, transactionType);
+    const db = await this.getDb();
+
+    return db.transaction(table as TableName, mode) as IdbTransaction<T>;
+  }
+
+  private async getStore(
+    table: string,
+    mode: IDBTransactionMode = 'readwrite',
+  ): Promise<IdbObjectStore> {
+    const db = await this.getDb();
+
+    if (this.transaction) {
+      if (this.transaction.mode !== mode) {
+        this.logger.error('Called getStore while already in a transaction with a different mode.', {
+          currentMode: this.transaction.mode,
+          requestedMode: mode,
+        });
+
+        throw new Error('Transaction mode does not match');
+      }
+
+      return this.transaction.objectStore(table as TableName);
+    }
+
+    this.mode = mode;
+
+    const tx = db.transaction(table as TableName, mode);
     return tx.objectStore(table as TableName);
   }
 
-  private async ensureTable(table: string): Promise<void> {
-    await this.ensureDb();
-    if (!this.db!.objectStoreNames.contains(table as TableName)) {
-      this.dbVersion++;
-      this.db = await openDB<HugOrmSchema>(this.dbName, this.dbVersion, {
-        upgrade: (db, oldVersion, newVersion) => {
-          if (!db.objectStoreNames.contains(table as TableName)) {
-            db.createObjectStore(table as TableName, {
-              keyPath: 'id',
-              autoIncrement: true,
-            });
-          }
-        },
-      });
-    }
+  private resetTransaction(): void {
+    this.transaction = null;
+    this.isTransactionActive = false;
   }
 
-  private async initializeDatabase(table: string): Promise<IDBPDatabase<HugOrmSchema>> {
-    return openDB<HugOrmSchema>(this.dbName, this.dbVersion, {
-      upgrade(db, oldVersion, newVersion) {
-        if (!db.objectStoreNames.contains(table as TableName)) {
-          db.createObjectStore(table as TableName, { keyPath: 'id', autoIncrement: true });
-        }
-      },
-    });
+  private async handleTransactionError(error: unknown, message: string): Promise<void> {
+    if (this.inTransaction) {
+      await this.rollback();
+    }
+    throw createError(message, error);
   }
 }

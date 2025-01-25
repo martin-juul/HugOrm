@@ -1,5 +1,7 @@
-import { Database } from '../database/Database';
-import { MigrationScript } from '../models/MigrationScript';
+import { ILogger } from '@martinjuul/hugorm/database/logger/ILogger';
+import { Database } from '@martinjuul/hugorm/database/Database';
+import { ConsoleLogger } from '@martinjuul/hugorm/database/logger/ConsoleLogger';
+import { MigrationScript } from '@martinjuul/hugorm/models/MigrationScript';
 import { ModelContainer } from '@martinjuul/hugorm/container/ModelContainer';
 
 interface DBMigration {
@@ -13,11 +15,14 @@ interface DBMigration {
 
 export class MigrationManager {
   private currentVersion: number = 0;
+  private logger: ILogger;
 
   constructor(
     private db: Database,
     private readonly _migrationTableName: string,
+    logger?: ILogger,
   ) {
+    this.logger = logger || new ConsoleLogger();
   }
 
   get migrationTableName(): string {
@@ -28,6 +33,10 @@ export class MigrationManager {
     return ModelContainer.getMigrations();
   }
 
+  get pendingMigrations(): MigrationScript[] {
+    return this.migrations.filter(m => m.version > this.currentVersion);
+  }
+
   async bootstrap(): Promise<void> {
     await this.db.ensureTable(this.migrationTableName);
     await this.loadCurrentVersion();
@@ -36,7 +45,7 @@ export class MigrationManager {
   async migrate(): Promise<void> {
     await this.bootstrap();
 
-    const pending = this.migrations.filter(m => m.version > this.currentVersion);
+    const pending = this.pendingMigrations;
 
     for (const migration of pending) {
       try {
@@ -45,7 +54,10 @@ export class MigrationManager {
           await this.recordMigration(migration);
         });
       } catch (error) {
-        console.error(`Migration failed: ${migration.name}`, error);
+        this.logger.error(`Migration failed: ${migration.name}`, {
+          migration: migration.toString(),
+        });
+
         throw new Error(`Migration failed at version ${migration.version}`);
       }
     }
@@ -65,7 +77,10 @@ export class MigrationManager {
           await this.removeMigration(migration);
         });
       } catch (error) {
-        console.error(`Rollback failed: ${migration.constructor.name}`, error);
+        this.logger.error(`Rollback failed: ${migration.name}`, {
+          migration: migration.toString(),
+        });
+
         throw new Error(`Rollback failed at version ${migration.version}`);
       }
     }

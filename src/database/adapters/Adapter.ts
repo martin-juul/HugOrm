@@ -2,7 +2,7 @@ import { ILogger } from '@martinjuul/hugorm/database/logger/ILogger';
 import { ColumnDefinition, IndexDefinition } from '@martinjuul/hugorm/migrations/Schema';
 
 export interface Adapter {
-  inTransaction: boolean;
+  get inTransaction(): boolean;
 
   hasTable(table: string): Promise<boolean>;
 

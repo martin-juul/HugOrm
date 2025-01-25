@@ -1,20 +1,21 @@
-import { Relationship } from './Relationship.js';
-import { Model } from '../models/Model.js';
+import { Relationship } from '@martinjuul/hugorm/relationships/Relationship';
+import { Model } from '@martinjuul/hugorm/models/Model';
 import { IModelConstructor } from '@martinjuul/hugorm/models/IModel';
 
 export class MorphMany<T extends Model, R extends Model> extends Relationship<T, R> {
   constructor(
-    public relatedModel: IModelConstructor<R>,
-    protected morphType: keyof T,
-    protected morphId: keyof T,
+    getRelatedModel: () => IModelConstructor<R>, // Changed to function getter
+    private morphType: keyof T,
+    morphId: keyof T,
   ) {
-    super(relatedModel, null!);
+    super(getRelatedModel, morphId);
   }
 
   async resolve(source: T): Promise<R[]> {
-    return this.relatedModel.where({
+    const modelClass = this.getRelatedModel(); // Get constructor when needed
+    return modelClass.where({
       [this.morphType]: source.constructor.name.toLowerCase(),
-      [this.morphId]: source.id,
+      [this.foreignKey]: source.id,
     } as unknown as Partial<R>);
   }
 }

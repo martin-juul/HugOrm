@@ -1,7 +1,8 @@
-import type { Adapter } from './Adapter.js';
-import { createError } from '@martinjuul/hugorm/utils/errorUtils';
+import { Adapter } from '@martinjuul/hugorm/database/adapters/Adapter';
 import { ILogger } from '@martinjuul/hugorm/database/logger/ILogger';
 import { ConsoleLogger } from '@martinjuul/hugorm/database/logger/ConsoleLogger';
+import { createError } from '@martinjuul/hugorm/utils/errorUtils';
+import { ColumnDefinition, IndexDefinition } from '@martinjuul/hugorm/migrations/Schema';
 
 export class LocalStorageAdapter implements Adapter {
   inTransaction = false;
@@ -43,6 +44,10 @@ export class LocalStorageAdapter implements Adapter {
     this.inTransaction = false;
   }
 
+  async hasTable(table: string): Promise<boolean> {
+    const data = this.getData();
+    return data[table] !== undefined;
+  }
 
   async createTable(table: string): Promise<void> {
     try {
@@ -56,9 +61,28 @@ export class LocalStorageAdapter implements Adapter {
     }
   }
 
-  async hasTable(table: string): Promise<boolean> {
+  async dropTable(table: string): Promise<void> {
     const data = this.getData();
-    return data[table] !== undefined;
+    if (data.hasOwnProperty(table)) {
+      delete data[table];
+      this.setData(data);
+    }
+  }
+
+  async addColumn(table: string, column: ColumnDefinition): Promise<void> {
+    this.logger.debug('LocalStorage does not support adding columns.', { table, column });
+  }
+
+  async dropColumn(table: string, columnName: string): Promise<void> {
+    this.logger.debug('LocalStorage does not support dropping columns.', { table, columnName });
+  }
+
+  async addIndex(table: string, options: IndexDefinition): Promise<void> {
+    this.logger.debug('LocalStorage does not support indexes.', { table, options });
+  }
+
+  async dropIndex(table: string, name: string): Promise<void> {
+    this.logger.debug('LocalStorage does not support indexes.', { table, name });
   }
 
   async find<T extends {}>(table: string, id: number): Promise<T | null> {
@@ -67,7 +91,7 @@ export class LocalStorageAdapter implements Adapter {
     if (!records) {
       throw new Error(`Table ${table} does not exist`);
     }
-    return records.find(record => record.id === id) || null;
+    return records.find((record: { id: number; }) => record.id === id) || null;
   }
 
   async create<T extends { id?: number }>(table: string, data: Partial<T>): Promise<T> {
@@ -91,7 +115,7 @@ export class LocalStorageAdapter implements Adapter {
     if (!records) {
       throw new Error(`Table ${table} does not exist`);
     }
-    const record = records.find(record => record.id === id);
+    const record = records.find((record: { id: number; }) => record.id === id);
     if (!record) {
       throw new Error(`Record with id ${id} not found in table ${table}`);
     }
@@ -106,7 +130,7 @@ export class LocalStorageAdapter implements Adapter {
     if (!records) {
       throw new Error(`Table ${table} does not exist`);
     }
-    storedData[table] = records.filter(record => record.id !== id);
+    storedData[table] = records.filter((record: { id: number; }) => record.id !== id);
     this.setData(storedData);
     return true;
   }
@@ -118,9 +142,9 @@ export class LocalStorageAdapter implements Adapter {
 
   async where<T extends {}>(table: string, conditions: Partial<T>): Promise<T[]> {
     const records = this.getData()[table] || [];
-    return records.filter(record => {
-      return Object.keys(conditions).every(
-        (key) => record[key as keyof T] === conditions[key as keyof T],
+    return records.filter((record: Partial<T>) => {
+      return (Object.keys(conditions) as Array<keyof T>).every(
+        (key) => record[key] === conditions[key],
       );
     });
   }
@@ -137,7 +161,6 @@ export class LocalStorageAdapter implements Adapter {
   }
 
   private setData(data: Record<string, any>): void {
-    const target = this.inTransaction ? this.transactionData : localStorage;
     if (this.inTransaction) {
       this.transactionData = data;
     } else {

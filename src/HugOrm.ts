@@ -5,12 +5,25 @@ import { createError } from '@martinjuul/hugorm/utils/errorUtils';
 import { ModelContainer } from '@martinjuul/hugorm/container/ModelContainer';
 import { Model } from '@martinjuul/hugorm/models/Model';
 import { resolveMigrationTableName } from '@martinjuul/hugorm/utils/resolveMigrationTableName';
+import { CreateMigrationsTable } from '@martinjuul/hugorm/database/migrations/CreateMigrationsTable';
+import { MigrationScript } from '@martinjuul/hugorm/models/MigrationScript';
 
 export class HugOrm {
   private db: Database | null = null;
   private migrationManager: MigrationManager | null = null;
 
   constructor(private config: HugOrmConfig) {
+    ModelContainer.registerMigration(CreateMigrationsTable);
+  }
+
+  registerMigration(script: MigrationScript): void {
+    ModelContainer.registerMigration(script);
+  }
+
+  registerMigrations(scripts: MigrationScript[]): void {
+    for (const script of scripts) {
+      this.registerMigration(script);
+    }
   }
 
   async setupDatabase(): Promise<void> {
@@ -35,8 +48,6 @@ export class HugOrm {
       throw new Error('Initialize database and migration manager first');
     }
 
-    await this.syncModels();
-
     if (this.config.autoMigrate) {
       await this.applyMigrations();
     }
@@ -54,29 +65,7 @@ export class HugOrm {
     ModelContainer.registerClass(modelClass);
   }
 
-  private async syncModels(): Promise<void> {
-    if (!this.db) {
-      return;
-    }
-
-    const modelClasses = [...ModelContainer.classRegistry.values()];
-
-    for (const modelClass of modelClasses) {
-      if (!modelClass.table) {
-        continue;
-      }
-
-      try {
-        if (!await this.db.hasTable(modelClass.table)) {
-          await this.db.createTable(modelClass.table);
-        }
-      } catch (error) {
-        throw createError(`Failed to sync model ${modelClass.name}`, error);
-      }
-    }
-  }
-
-  private async applyMigrations(): Promise<void> {
+  async applyMigrations(): Promise<void> {
     if (!this.migrationManager) {
       return;
     }

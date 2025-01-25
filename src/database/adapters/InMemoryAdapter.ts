@@ -1,6 +1,7 @@
 import type { Adapter } from './Adapter.js';
 import { ILogger } from '@martinjuul/hugorm/database/logger/ILogger';
 import { ConsoleLogger } from '@martinjuul/hugorm/database/logger/ConsoleLogger';
+import { ColumnDefinition, IndexDefinition } from '@martinjuul/hugorm/migrations/Schema';
 
 export class InMemoryAdapter implements Adapter {
   inTransaction = false;
@@ -12,11 +13,12 @@ export class InMemoryAdapter implements Adapter {
     this.logger = logger;
   }
 
-  // Transaction methods
+  // Transaction Methods
   async beginTransaction(): Promise<void> {
     if (this.inTransaction) {
       throw new Error('Transaction already started');
     }
+    // Clone the current data state for the transaction
     this.transactionSnapshot = JSON.parse(JSON.stringify(this.data));
     this.inTransaction = true;
   }
@@ -25,6 +27,7 @@ export class InMemoryAdapter implements Adapter {
     if (!this.inTransaction) {
       throw new Error('No active transaction');
     }
+    // Apply transaction changes to main data
     this.data = this.transactionSnapshot!;
     this.transactionSnapshot = null;
     this.inTransaction = false;
@@ -34,10 +37,12 @@ export class InMemoryAdapter implements Adapter {
     if (!this.inTransaction) {
       throw new Error('No active transaction');
     }
+    // Discard transaction changes
     this.transactionSnapshot = null;
     this.inTransaction = false;
   }
 
+  // Table Operations
   async hasTable(table: string): Promise<boolean> {
     return this.data[table] !== undefined;
   }
@@ -48,12 +53,36 @@ export class InMemoryAdapter implements Adapter {
     }
   }
 
+  async dropTable(table: string): Promise<void> {
+    if (this.data[table]) {
+      delete this.data[table];
+    }
+  }
+
+  // Schema Modifications (Not Supported)
+  async addColumn(table: string, column: ColumnDefinition): Promise<void> {
+    this.logger.debug('In-memory adapter does not support adding columns.', { table, column });
+  }
+
+  async dropColumn(table: string, columnName: string): Promise<void> {
+    this.logger.debug('In-memory adapter does not support dropping columns.', { table, columnName });
+  }
+
+  async addIndex(table: string, options: IndexDefinition): Promise<void> {
+    this.logger.debug('In-memory adapter does not support indexes.', { table, options });
+  }
+
+  async dropIndex(table: string, name: string): Promise<void> {
+    this.logger.debug('In-memory adapter does not support indexes.', { table, name });
+  }
+
+  // CRUD Operations
   async find<T extends {}>(table: string, id: number): Promise<T | null> {
     const records = this.data[table];
     if (!records) {
       throw new Error(`Table ${table} does not exist`);
     }
-    return records.find(record => record.id === id) || null;
+    return records.find((record) => record.id === id) || null;
   }
 
   async create<T extends {}>(table: string, data: Partial<T>): Promise<T> {
@@ -63,13 +92,13 @@ export class InMemoryAdapter implements Adapter {
     }
     const record = { ...data, id: target[table].length + 1 };
     target[table].push(record);
-    return record as T;
+    return record as unknown as T;
   }
 
   async update<T extends {}>(table: string, id: number, data: Partial<T>): Promise<T> {
     const target = this.inTransaction ? this.transactionSnapshot! : this.data;
     const records = target[table] || [];
-    const index = records.findIndex(record => record.id === id);
+    const index = records.findIndex((record) => record.id === id);
 
     if (index === -1) {
       throw new Error('Record not found');
@@ -83,19 +112,20 @@ export class InMemoryAdapter implements Adapter {
     const target = this.inTransaction ? this.transactionSnapshot! : this.data;
     const records = target[table] || [];
     const initialLength = records.length;
-    target[table] = records.filter(record => record.id !== id);
+    target[table] = records.filter((record) => record.id !== id);
     return records.length !== initialLength;
   }
 
+  // Query Methods
   async all<T extends {}>(table: string): Promise<T[]> {
     const target = this.inTransaction ? this.transactionSnapshot! : this.data;
-    return (target[table] || []).slice() as T[];
+    return (target[table] || []).slice() as T[]; // Return a copy to prevent mutation
   }
 
   async where<T extends {}>(table: string, conditions: Partial<T>): Promise<T[]> {
     const target = this.inTransaction ? this.transactionSnapshot! : this.data;
     const records = target[table] || [];
-    return records.filter(record => {
+    return records.filter((record) => {
       return Object.keys(conditions).every(
         (key) => record[key as keyof T] === conditions[key as keyof T],
       );
