@@ -11,9 +11,11 @@ import { MigrationScript } from '@martinjuul/hugorm/models/MigrationScript';
 export class HugOrm {
   private db: Database | null = null;
   private migrationManager: MigrationManager | null = null;
+  private static config: HugOrmConfig;
 
   constructor(private config: HugOrmConfig) {
     ModelContainer.registerMigration(CreateMigrationsTable);
+    HugOrm.config = config;
   }
 
   registerMigration(script: MigrationScript): void {
@@ -27,6 +29,10 @@ export class HugOrm {
   }
 
   async setupDatabase(): Promise<void> {
+    if (this.db) {
+      return;
+    }
+
     this.db = new Database(this.config.adapter);
 
     try {
@@ -37,20 +43,28 @@ export class HugOrm {
   }
 
   async setupMigrationManager(): Promise<void> {
+    if (this.migrationManager) {
+      return;
+    }
+
     if (!this.db) {
       throw new Error('Database not initialized');
     }
+
     this.migrationManager = new MigrationManager(this.db, resolveMigrationTableName(this.config));
   }
 
   async bootstrap(): Promise<void> {
-    if (!this.db || !this.migrationManager) {
-      throw new Error('Initialize database and migration manager first');
-    }
+    await this.setupDatabase();
+    await this.setupMigrationManager();
 
     if (this.config.autoMigrate) {
       await this.applyMigrations();
     }
+
+    ModelContainer.getModelClasses().forEach(modelClass => {
+      modelClass.setDatabase(this.getDatabase());
+    })
   }
 
   getDatabase(): Database {
