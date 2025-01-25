@@ -1,1 +1,1 @@
-export const RELATIONSHIP_METADATA_KEY = 'relationships';
+export const RELATIONSHIP_METADATA_KEY = 'hugorm:relationships';

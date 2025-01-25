@@ -12,7 +12,9 @@ export default defineConfig({
     },
     rollupOptions: {
       // Ensure external dependencies are not bundled
-      external: [], // Add any external dependencies here
+      external: [
+        'idb',
+      ], // Add any external dependencies here
       output: {
         globals: {
           // Define global variables for external dependencies (if any)
@@ -20,10 +22,11 @@ export default defineConfig({
       },
     },
     outDir: 'dist',
+    sourcemap: true,
   },
   plugins: [
     dts({
-      insertTypesEntry: true, // Generate types entry file
+      rollupTypes: true,
     }),
   ],
   resolve: {

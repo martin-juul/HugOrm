@@ -1,4 +1,3 @@
-import 'reflect-metadata';
 import { Database } from '../database/Database.js';
 import { EventEmitter } from '../events/EventEmitter.js';
 import { Paginator } from '../pagination/Paginator.js';
@@ -13,6 +12,7 @@ import { IModel, IModelConstructor, ModelEvents } from './IModel.js';
 import { createError } from '@martinjuul/hugorm/utils/errorUtils';
 import { ILogger } from '@martinjuul/hugorm/database/logger/ILogger';
 import { ConsoleLogger } from '@martinjuul/hugorm/database/logger/ConsoleLogger';
+import { COLUMN_METADATA_KEY, ColumnOptions } from '../decorators/Column.js';
 
 export interface SoftDeletes {
   getDeletedAtFieldName(): string;
@@ -27,8 +27,10 @@ const prepareSoftDelete = (model: Model) => {
 
 export class Model<T extends IModel<T> = any> implements IModel<T> {
   static logger: ILogger = new ConsoleLogger();
+  static table: string;
   protected static defaultConnection: Database | null = null; // Global default
   protected static connection: Database | null = null; // Per-model override
+  protected static schema: Record<string, any> = {};
   protected static timestamps = true;
   protected static softDeletes = false;
   protected static touches: string[] = [];
@@ -39,10 +41,12 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
 
   constructor(data?: Partial<T>) {
     if (data) {
-      Object.assign(this, data);
-      this._originalState = { ...data };
+      const processedData = this.applyTypeCasting(data);
+      Object.assign(this, processedData);
+      this._originalState = { ...processedData };
     }
   }
+
 
   static _events: EventEmitter<ModelEvents<any>> = new EventEmitter();
 
@@ -52,14 +56,14 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
 
   static get database(): Database {
     // Use per-model connection if set
-    if (this.connection) return this.connection;
+    if (this.connection) {
+      return this.connection;
+    }
     // Fall back to global default
-    if (Model.defaultConnection) return Model.defaultConnection;
+    if (Model.defaultConnection) {
+      return Model.defaultConnection;
+    }
     throw new Error('Database not configured. Call Model.setDatabase() first.');
-  }
-
-  static get table(): string {
-    return this.name.toLowerCase() + 's';
   }
 
   get table(): string {
@@ -110,6 +114,11 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
     }
   }
 
+  static async find<T extends Model>(this: IModelConstructor<T>, id: number): Promise<T | null> {
+    const record = await this.database.find<T>(this.table, id);
+    return record ? new this(record) : null;
+  }
+
   static async all<T extends IModel<T>>(this: IModelConstructor<T>): Promise<T[]> {
     const records = await this.database.all<T>(this.table);
     return records.map(record => new this(record));
@@ -143,7 +152,8 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
   }
 
   static async withTrashed<T extends IModel<T>>(this: IModelConstructor<T>): Promise<T[]> {
-    return this.database.where<T>(this.table, { deleted_at: { $ne: null } });
+    // @ts-expect-error
+    return this.database.where<T>(this.table, { deletedAt: { $ne: null } });
   }
 
   // CRUD Operations
@@ -177,7 +187,9 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
 
     const now = new Date();
     if (this.timestamps) {
-      if (!this.id) (this as any).created_at = now;
+      if (!this.id) {
+        (this as any).created_at = now;
+      }
       (this as any).updated_at = now;
     }
 
@@ -219,7 +231,9 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
   }
 
   async delete(): Promise<boolean> {
-    if (!this.id) throw new Error('Cannot delete a record without an ID.');
+    if (!this.id) {
+      throw new Error('Cannot delete a record without an ID.');
+    }
 
     if (this.softDeletes) {
       prepareSoftDelete(this);
@@ -260,6 +274,7 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
     relatedModel: IModelConstructor<R>,
     foreignKey: keyof T,
   ): void {
+    // @ts-expect-error
     const relationship = new HasOne<T, R>(relatedModel, foreignKey);
     Reflect.defineMetadata(RELATIONSHIP_METADATA_KEY, relationship, this, foreignKey as string);
   }
@@ -268,6 +283,7 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
     relatedModel: IModelConstructor<R>,
     foreignKey: keyof T,
   ): void {
+    // @ts-expect-error
     const relationship = new HasMany<T, R>(relatedModel, foreignKey);
     Reflect.defineMetadata(RELATIONSHIP_METADATA_KEY, relationship, this, foreignKey as string);
   }
@@ -276,6 +292,7 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
     relatedModel: IModelConstructor<R>,
     foreignKey: keyof T,
   ): void {
+    // @ts-expect-error
     const relationship = new BelongsTo<T, R>(relatedModel, foreignKey);
     Reflect.defineMetadata(RELATIONSHIP_METADATA_KEY, relationship, this, foreignKey as string);
   }
@@ -286,6 +303,7 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
     foreignKey: keyof T,
     relatedKey: keyof R,
   ): void {
+    // @ts-expect-error
     const relationship = new BelongsToMany<T, R>(relatedModel, pivotTable, foreignKey, relatedKey);
     Reflect.defineMetadata(RELATIONSHIP_METADATA_KEY, relationship, this, foreignKey as string);
   }
@@ -295,6 +313,7 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
     morphType: keyof T,
     morphId: keyof T,
   ): void {
+    // @ts-expect-error
     const relationship = new MorphTo<T>(relatedModels, morphType, morphId);
     Reflect.defineMetadata(RELATIONSHIP_METADATA_KEY, relationship, this, morphType as string);
   }
@@ -304,13 +323,16 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
     morphType: keyof T,
     morphId: keyof T,
   ): void {
+    // @ts-expect-error
     const relationship = new MorphMany<T, R>(relatedModel, morphType, morphId);
     Reflect.defineMetadata(RELATIONSHIP_METADATA_KEY, relationship, this, morphType as string);
   }
 
   async resolveRelationship(propertyKey: string): Promise<any> {
     const relationship = Reflect.getMetadata(RELATIONSHIP_METADATA_KEY, this, propertyKey);
-    if (!relationship) throw new Error(`No relationship defined for property: ${propertyKey}`);
+    if (!relationship) {
+      throw new Error(`No relationship defined for property: ${propertyKey}`);
+    }
     return relationship.resolve(this);
   }
 
@@ -319,11 +341,43 @@ export class Model<T extends IModel<T> = any> implements IModel<T> {
   }
 
   async touch(): Promise<void> {
-    if (typeof this.id === 'undefined') return;
+    if (typeof this.id === 'undefined') {
+      return;
+    }
     const now = new Date();
+    // @ts-expect-error
     await this.database.update<T>(this.table, this.id, { updatedAt: now } as Partial<T>);
 
+    // @ts-expect-error
     (this as unknown as T).updatedAt = now;
     this._originalState = { ...(this as unknown as T) };
   }
+
+  private applyTypeCasting(data: Partial<T>): Partial<T> {
+    const columns = Reflect.getMetadata(COLUMN_METADATA_KEY, this.constructor) || {};
+    const processed: Partial<T> = { ...data };
+
+    for (const [key, options] of Object.entries<ColumnOptions>(columns)) {
+      const value = processed[key as keyof T];
+      if (value === undefined || value === null) {
+        continue;
+      }
+
+      switch (options.type) {
+        case Date:
+          processed[key as keyof T] = new Date(value as string) as any;
+          break;
+        case Number:
+          processed[key as keyof T] = Number(value) as any;
+          break;
+        case Boolean:
+          processed[key as keyof T] = Boolean(value) as any;
+          break;
+        // Add more types as needed
+      }
+    }
+
+    return processed;
+  }
+
 }

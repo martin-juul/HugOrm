@@ -20,8 +20,6 @@ export interface IModel<T = any> {
   database: Database;
   events: EventEmitter<ModelEvents<T>>;
 
-  find(id: number): Promise<T | null>;
-
   save(): Promise<this>;
 
   update(data: Partial<T>): Promise<this>;
@@ -63,17 +61,17 @@ export interface IModelConstructor<T extends IModel<T>> {
 
   new(data?: Partial<T>): T;
 
+  query(callback: (record: T) => boolean): Promise<T[]>;
+
   create(data: Partial<T>): Promise<T>;
 
   all(): Promise<T[]>;
 
+  find(id: number): Promise<T | null>;
+
   where(conditions: Partial<T>): Promise<T[]>;
 
-  query(callback: (record: T) => boolean): Promise<T[]>;
-
   paginate(perPage?: number, page?: number): Promise<Paginator<T>>;
-
-  find(id: number): Promise<T | null>;
 
   setDatabase(database: Database): void;
 }

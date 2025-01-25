@@ -10,7 +10,7 @@
     "dev": "vite build --watch",
     "prepublishOnly": "yarn build"
   },
-  "peerDependencies": {
+  "optionalDependencies": {
     "idb": "^8.0.1"
   },
   "devDependencies": {

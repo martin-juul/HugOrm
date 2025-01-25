@@ -1,5 +1,7 @@
-import { Database } from '../database/Database';
-import { MigrationScript } from '../models/MigrationScript';
+import { ILogger } from '@martinjuul/hugorm/database/logger/ILogger';
+import { Database } from '@martinjuul/hugorm/database/Database';
+import { ConsoleLogger } from '@martinjuul/hugorm/database/logger/ConsoleLogger';
+import { MigrationScript } from '@martinjuul/hugorm/models/MigrationScript';
 import { ModelContainer } from '@martinjuul/hugorm/container/ModelContainer';
 
 interface DBMigration {
@@ -12,29 +14,38 @@ interface DBMigration {
 }
 
 export class MigrationManager {
-  private readonly MIGRATION_TABLE = 'migrations';
   private currentVersion: number = 0;
+  private logger: ILogger;
 
   constructor(
     private db: Database,
+    private readonly _migrationTableName: string,
+    logger?: ILogger,
   ) {
+    this.logger = logger || new ConsoleLogger();
+  }
+
+  get migrationTableName(): string {
+    return this._migrationTableName;
   }
 
   get migrations(): MigrationScript[] {
     return ModelContainer.getMigrations();
   }
 
+  get pendingMigrations(): MigrationScript[] {
+    return this.migrations.filter(m => m.version > this.currentVersion);
+  }
+
   async bootstrap(): Promise<void> {
-    if (!(await this.db.hasTable(this.MIGRATION_TABLE))) {
-      await this.db.createTable(this.MIGRATION_TABLE);
-    }
+    await this.db.ensureTable(this.migrationTableName);
     await this.loadCurrentVersion();
   }
 
   async migrate(): Promise<void> {
     await this.bootstrap();
 
-    const pending = this.migrations.filter(m => m.version > this.currentVersion);
+    const pending = this.pendingMigrations;
 
     for (const migration of pending) {
       try {
@@ -43,7 +54,10 @@ export class MigrationManager {
           await this.recordMigration(migration);
         });
       } catch (error) {
-        console.error(`Migration failed: ${migration.name}`, error);
+        this.logger.error(`Migration failed: ${migration.name}`, {
+          migration: migration.toString(),
+        });
+
         throw new Error(`Migration failed at version ${migration.version}`);
       }
     }
@@ -63,14 +77,17 @@ export class MigrationManager {
           await this.removeMigration(migration);
         });
       } catch (error) {
-        console.error(`Rollback failed: ${migration.constructor.name}`, error);
+        this.logger.error(`Rollback failed: ${migration.name}`, {
+          migration: migration.toString(),
+        });
+
         throw new Error(`Rollback failed at version ${migration.version}`);
       }
     }
   }
 
   async validate(): Promise<boolean> {
-    const appliedMigrations = await this.db.all<DBMigration>(this.MIGRATION_TABLE);
+    const appliedMigrations = await this.db.all<DBMigration>(this.migrationTableName);
 
     return appliedMigrations.every(applied => {
       const migration = this.migrations.find(m => m.version === applied.version);
@@ -87,7 +104,7 @@ export class MigrationManager {
     return {
       currentVersion: this.currentVersion,
       pending: this.migrations.filter(m => m.version > this.currentVersion).length,
-      history: await this.db.all<DBMigration>(this.MIGRATION_TABLE),
+      history: await this.db.all<DBMigration>(this.migrationTableName),
     };
   }
 
@@ -100,7 +117,7 @@ export class MigrationManager {
   }
 
   private async loadCurrentVersion(): Promise<void> {
-    const results = await this.db.all<DBMigration>(this.MIGRATION_TABLE);
+    const results = await this.db.all<DBMigration>(this.migrationTableName);
     this.currentVersion = results.length > 0
                           ? Math.max(...results.map(m => m.version))
                           : 0;
@@ -109,7 +126,7 @@ export class MigrationManager {
   private async recordMigration(migration: MigrationScript): Promise<void> {
     const checksum = this.generateChecksum(migration);
 
-    await this.db.create<DBMigration>(this.MIGRATION_TABLE, {
+    await this.db.create<DBMigration>(this.migrationTableName, {
       version: migration.version,
       name: migration.constructor.name,
       appliedAt: new Date(),
@@ -119,11 +136,11 @@ export class MigrationManager {
   }
 
   private async removeMigration(migration: MigrationScript): Promise<void> {
-    await this.db.where<DBMigration>(this.MIGRATION_TABLE, {
+    await this.db.where<DBMigration>(this.migrationTableName, {
       version: migration.version,
     }).then(migrations =>
       Promise.all(migrations.map(m =>
-        this.db.delete(this.MIGRATION_TABLE, m.id!),
+        this.db.delete(this.migrationTableName, m.id!),
       )),
     );
   }

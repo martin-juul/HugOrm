@@ -4,29 +4,43 @@ import { HugOrmConfig } from '@martinjuul/hugorm/HugOrmConfig';
 import { createError } from '@martinjuul/hugorm/utils/errorUtils';
 import { ModelContainer } from '@martinjuul/hugorm/container/ModelContainer';
 import { Model } from '@martinjuul/hugorm/models/Model';
+import { resolveMigrationTableName } from '@martinjuul/hugorm/utils/resolveMigrationTableName';
+import { CreateMigrationsTable } from '@martinjuul/hugorm/database/migrations/CreateMigrationsTable';
+import { MigrationScript } from '@martinjuul/hugorm/models/MigrationScript';
 
 export class HugOrm {
   private db: Database | null = null;
   private migrationManager: MigrationManager | null = null;
 
   constructor(private config: HugOrmConfig) {
+    ModelContainer.registerMigration(CreateMigrationsTable);
+  }
+
+  registerMigration(script: MigrationScript): void {
+    ModelContainer.registerMigration(script);
+  }
+
+  registerMigrations(scripts: MigrationScript[]): void {
+    for (const script of scripts) {
+      this.registerMigration(script);
+    }
   }
 
   async setupDatabase(): Promise<void> {
     this.db = new Database(this.config.adapter);
 
-    if (!this.config.autoMigrate) {
-      try {
-        await this.db.all('migrations');
-      } catch (error) {
-        throw createError('Database adapter check failed', error);
-      }
+    try {
+      await this.db.all(resolveMigrationTableName(this.config));
+    } catch (error) {
+      throw createError('Database adapter check failed', error);
     }
   }
 
   async setupMigrationManager(): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
-    this.migrationManager = new MigrationManager(this.db);
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+    this.migrationManager = new MigrationManager(this.db, resolveMigrationTableName(this.config));
   }
 
   async bootstrap(): Promise<void> {
@@ -34,12 +48,15 @@ export class HugOrm {
       throw new Error('Initialize database and migration manager first');
     }
 
-    await this.syncModels();
-    await this.applyMigrations();
+    if (this.config.autoMigrate) {
+      await this.applyMigrations();
+    }
   }
 
   getDatabase(): Database {
-    if (!this.db) throw new Error('Database not initialized');
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
     return this.db;
   }
 
@@ -48,26 +65,10 @@ export class HugOrm {
     ModelContainer.registerClass(modelClass);
   }
 
-  private async syncModels(): Promise<void> {
-    if (!this.db) return;
-
-    const modelClasses = Array.from(ModelContainer.classRegistry.values());
-
-    for (const modelClass of modelClasses) {
-      if (!modelClass.table) continue;
-
-      try {
-        if (!await this.db.hasTable(modelClass.table)) {
-          await this.db.createTable(modelClass.table);
-        }
-      } catch (error) {
-        throw createError(`Failed to sync model ${modelClass.name}`, error);
-      }
+  async applyMigrations(): Promise<void> {
+    if (!this.migrationManager) {
+      return;
     }
-  }
-
-  private async applyMigrations(): Promise<void> {
-    if (!this.migrationManager) return;
 
     await this.migrationManager.migrate();
   }
