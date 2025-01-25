@@ -20,7 +20,7 @@ export class ModelContainer {
   }
 
   static registerClass(modelClass: typeof Model): void {
-    const modelName = modelClass.name; // Get the class name here
+    const modelName = modelClass.name;
     this._classRegistry.set(modelName, modelClass);
   }
 
@@ -30,6 +30,10 @@ export class ModelContainer {
 
   static getModelClass<T extends typeof Model>(name: string): T | undefined {
     return this._classRegistry.get(name) as T;
+  }
+
+  static getModelClasses(): typeof Model[] {
+    return [...this._classRegistry.values()];
   }
 
   static registerMigration(script: MigrationScript): void {

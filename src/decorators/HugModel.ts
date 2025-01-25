@@ -11,19 +11,6 @@ export function hugmodel() {
     class HugModel extends constructor {
       private static _hugRegistered = true;
 
-      constructor(...args: any[]) {
-        super(...args);
-        // ModelContainer.register(this as unknown as Model);
-
-        if (this.database) {
-          this.database.ensureTable(this.table);
-          // @ts-expect-error
-        } else if (this.constructor.database) {
-          // @ts-expect-error
-          this.constructor.database.ensureTable(this.constructor.table);
-        }
-      }
-
       static get relationships(): any[] {
         return Reflect.getMetadata(RELATIONSHIP_METADATA_KEY, this) || [];
       }

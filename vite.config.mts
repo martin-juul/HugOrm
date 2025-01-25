@@ -8,13 +8,12 @@ export default defineConfig({
       entry: fileURLToPath(new URL('./src/index.ts', import.meta.url)),
       name: 'Hugorm',
       fileName: (format) => `index.${format}.js`,
-      formats: ['es'], // Build for ESM only
+      formats: ['es'],
     },
     rollupOptions: {
-      // Ensure external dependencies are not bundled
       external: [
         'idb',
-      ], // Add any external dependencies here
+      ],
       output: {
         globals: {
           // Define global variables for external dependencies (if any)
@@ -23,6 +22,7 @@ export default defineConfig({
     },
     outDir: 'dist',
     sourcemap: true,
+    minify: true,
   },
   plugins: [
     dts({

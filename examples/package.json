@@ -2,7 +2,7 @@
   "name": "examples",
   "private": true,
   "scripts": {
-    "simple": "tsx src/main.ts"
+    "in-memory-db": "tsx src/main.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

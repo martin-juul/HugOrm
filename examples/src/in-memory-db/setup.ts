@@ -27,9 +27,12 @@ export async function setup() {
     createProfileTable,
   ];
 
+
   hugOrm.registerMigrations(migrations);
   hugOrm.registerModel(User);
   hugOrm.registerModel(Profile);
+
+  await hugOrm.bootstrap()
 
   return hugOrm;
 }
